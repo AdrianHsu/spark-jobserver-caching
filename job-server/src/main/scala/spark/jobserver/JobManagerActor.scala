@@ -1,10 +1,11 @@
 package spark.jobserver
 
-import java.io.File
+import java.io.{File, PrintWriter}
 import java.net.{MalformedURLException, URI, URL}
 import java.util.concurrent.Executors._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
+import scala.io.Source
 
 import akka.actor._
 import akka.pattern.ask
@@ -592,6 +593,37 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
 
     val jobId = jobInfo.jobId
     logger.info("Starting Spark job {} [{}]...", jobId: Any, jobInfo.mainClass)
+    var inputStr = jobConfig.getString("input.string") // a b c a b see
+//    logger.info(inputStr)
+
+    def getListOfFiles(dir: File, extensions: List[String]): List[File] = {
+      dir.listFiles.filter(_.isFile).toList.filter { file =>
+        extensions.exists(file.getName.endsWith(_))
+      }
+    }
+
+    val okFileExtensions = List("txt")
+    val files = getListOfFiles(new File("/tmp/spark-jobserver/adrian/"), okFileExtensions)
+
+    for (file <- files) {
+      val fileContents = Source.fromFile(file).getLines.mkString
+      logger.info(file.getName + "|" + fileContents)
+
+      if(fileContents.equals(inputStr)) {
+        logger.info(file.getName + " found!")
+        val tmp = file.toString.substring(0, file.toString.lastIndexOf('.')) // remove extension
+
+        val lines = scala.io.Source.fromFile(tmp + ".out")
+        logger.info(lines.getLines().mkString)
+
+        // TODO: break the loop and return the cache result
+      }
+    }
+
+    new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".txt") {
+      write(inputStr); close
+    }
+
 
     // Atomically increment the number of currently running jobs. If the old value already exceeded the
     // limit, decrement it back, send an error message to the sender, and return a dummy future with
@@ -657,6 +689,11 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         // with context-per-jvm=true configuration
         resultActor ! JobResult(jobId, result)
         statusActor ! JobFinished(jobId, DateTime.now())
+        logger.info(result.toString())
+        new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
+          write(result.toString()); close
+        }
+
       case Failure(wrapped: Throwable) =>
         // actual error was wrapped so we could process fatal errors, see #1161
         val error = wrapped.getCause
