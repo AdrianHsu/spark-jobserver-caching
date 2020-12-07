@@ -602,7 +602,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
       }
     }
 
-    val okFileExtensions = List("txt")
+    val okFileExtensions = List("in")
     val files = getListOfFiles(new File("/tmp/spark-jobserver/adrian/"), okFileExtensions)
 
     for (file <- files) {
@@ -614,13 +614,26 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         val tmp = file.toString.substring(0, file.toString.lastIndexOf('.')) // remove extension
 
         val lines = scala.io.Source.fromFile(tmp + ".out")
-        logger.info(lines.getLines().mkString)
+
+        val result = lines.getLines().mkString
+        logger.info(result)
 
         // TODO: break the loop and return the cache result
+        return Future {
+
+          resultActor ! JobResult(jobId, result)
+          statusActor ! JobFinished(jobId, DateTime.now())
+
+          currentRunningJobs.getAndDecrement()
+          resultActor ! Unsubscribe(jobId, subscriber)
+          statusActor ! Unsubscribe(jobId, subscriber)
+
+          postEachJob()
+        }(executionContext)
       }
     }
 
-    new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".txt") {
+    new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".in") {
       write(inputStr); close
     }
 
@@ -633,6 +646,8 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
       subscriber ! NoJobSlotsAvailable(maxRunningJobs)
       return Future.successful(None)
     }
+
+
 
     Future {
       org.slf4j.MDC.put("jobId", jobId)
