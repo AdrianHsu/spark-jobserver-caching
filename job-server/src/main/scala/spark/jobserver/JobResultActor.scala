@@ -7,6 +7,8 @@ import spark.jobserver.common.akka.InstrumentedActor
 import spark.jobserver.common.akka.metrics.YammerMetrics
 import spark.jobserver.util.LRUCache
 
+import org.joda.time.DateTime
+
 /**
  * It is an actor to manage results that are returned from jobs.
  *
@@ -44,6 +46,7 @@ class JobResultActor extends InstrumentedActor with YammerMetrics {
     case JobResult(jobId, result) =>
       cache.put(jobId, result)
       logger.debug("Received job results for JobID {}", jobId)
+      logger.info("[____Custom Log____] JobResultActor received the job at {}", DateTime.now())
       subscribers.get(jobId).foreach(_ ! JobResult(jobId, result))
       subscribers.remove(jobId)
   }

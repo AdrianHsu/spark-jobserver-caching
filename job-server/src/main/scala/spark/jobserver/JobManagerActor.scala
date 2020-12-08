@@ -593,6 +593,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
 
     val jobId = jobInfo.jobId
     logger.info("Starting Spark job {} [{}]...", jobId: Any, jobInfo.mainClass)
+    logger.info("[____Custom Log____] getJobFuture() started at {}", DateTime.now())
     var inputStr = jobConfig.getString("input.string") // a b c a b see
 //    logger.info(inputStr)
 
@@ -619,6 +620,8 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         logger.info(result)
 
         // TODO: break the loop and return the cache result
+        logger.info("[____Custom Log____] return the cached result at {}", DateTime.now())
+
         return Future {
 
           resultActor ! JobResult(jobId, result)
