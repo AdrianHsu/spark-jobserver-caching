@@ -1,12 +1,12 @@
 package spark.jobserver.api
 
 import java.io.{File, IOException}
-
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.spark.SparkContext
 import org.apache.spark.api.java.JavaSparkContext
 import org.scalactic._
 import spark.jobserver.{ContextLike, NamedObjects}
+
 
 trait JobEnvironment {
   def jobId: String
@@ -41,10 +41,11 @@ case class SingleProblem(problem: String) extends ValidationProblem
   * The idea is that validate() will translate the config into another type, and runJob will
   * operate on that type.
   */
-trait SparkJobBase {
+trait SparkJobBase{
   type C
   type JobData
   type JobOutput
+
 
   /**
     * This is the entry point for a Spark Job Server to execute Spark jobs.
@@ -71,6 +72,15 @@ trait SparkJobBase {
     * @return either JobData, which is parsed from config, or a list of validation issues.
     */
   def validate(sc: C, runtime: JobEnvironment, config: Config): JobData Or Every[ValidationProblem]
+
+  def getCacheId(sc: C, runtime: JobEnvironment, data: JobData): String = {
+    java.util.UUID.nameUUIDFromBytes(data.toString().getBytes()).toString()
+  }
+
+//  def cachedRunJob(sc: C, runtime: JobEnvironment, data: JobData): JobOutput = {
+//    runtime.namedObjects.getOrElseCreate(getCacheId(sc, runtime, data))
+//    runJob(sc, runtime, data)
+//  }
 }
 
 trait SparkJob extends SparkJobBase {

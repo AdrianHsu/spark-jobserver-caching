@@ -593,36 +593,38 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
 
     val jobId = jobInfo.jobId
     logger.info("Starting Spark job {} [{}]...", jobId: Any, jobInfo.mainClass)
-    var inputStr = jobConfig.getString("input.string") // a b c a b see
+    //HERE------------------------------------------------------------------------------
+//    var inputStr = jobConfig.getString("input.string") // a b c a b see
 //    logger.info(inputStr)
-
-    def getListOfFiles(dir: File, extensions: List[String]): List[File] = {
-      dir.listFiles.filter(_.isFile).toList.filter { file =>
-        extensions.exists(file.getName.endsWith(_))
-      }
-    }
-
-    val okFileExtensions = List("txt")
-    val files = getListOfFiles(new File("/tmp/spark-jobserver/adrian/"), okFileExtensions)
-
-    for (file <- files) {
-      val fileContents = Source.fromFile(file).getLines.mkString
-      logger.info(file.getName + "|" + fileContents)
-
-      if(fileContents.equals(inputStr)) {
-        logger.info(file.getName + " found!")
-        val tmp = file.toString.substring(0, file.toString.lastIndexOf('.')) // remove extension
-
-        val lines = scala.io.Source.fromFile(tmp + ".out")
-        logger.info(lines.getLines().mkString)
-
-        // TODO: break the loop and return the cache result
-      }
-    }
-
-    new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".txt") {
-      write(inputStr); close
-    }
+//
+//    def getListOfFiles(dir: File, extensions: List[String]): List[File] = {
+//      dir.listFiles.filter(_.isFile).toList.filter { file =>
+//        extensions.exists(file.getName.endsWith(_))
+//      }
+//    }
+//
+//    val okFileExtensions = List("txt")
+//    val files = getListOfFiles(new File("/tmp/spark-jobserver/adrian/"), okFileExtensions)
+//
+//    for (file <- files) {
+//      val fileContents = Source.fromFile(file).getLines.mkString
+//      logger.info(file.getName + "|" + fileContents)
+//
+//      if(fileContents.equals(inputStr)) {
+//        logger.info(file.getName + " found!")
+//        val tmp = file.toString.substring(0, file.toString.lastIndexOf('.')) // remove extension
+//
+//        val lines = scala.io.Source.fromFile(tmp + ".out")
+//        logger.info(lines.getLines().mkString)
+//
+//        // TODO: break the loop and return the cache result
+//      }
+//    }
+//
+//    new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".txt") {
+//      write(inputStr); close
+//    }
+    //TO HERE IS NEW------------------------------------------------------------------------
 
 
     // Atomically increment the number of currently running jobs. If the old value already exceeded the
@@ -658,7 +660,16 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
               statusActor ! JobStarted(jobId: String, jobInfo)
               val sc = jobContext.sparkContext
               sc.setJobGroup(jobId, s"Job group for $jobId and spark context ${sc.applicationId}", true)
-              job.runJob(jobC, jobEnv, jobData)
+              logger.info("#$ Right before runJob")
+//              logger.info("#$ " + jobData.toString())
+//              logger.info("#$ " + jobData.toString().getBytes())
+//              logger.info("#$ " + java.util.UUID.nameUUIDFromBytes(jobData.toString().getBytes()))
+//              logger.info("#$ " + java.util.UUID.nameUUIDFromBytes(jobData.toString()).toString)
+              val cacheId: String = job.getCacheId(jobC, jobEnv, jobData)
+              logger.info("#$ cacheId: " + cacheId)
+              val result = job.runJob(jobC, jobEnv, jobData)
+              logger.info("#$ Right after runJob")
+              result
           }
         } finally {
           org.slf4j.MDC.remove("jobId")
@@ -687,12 +698,18 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         // and the streamed out of InputStream on the other side.
         // Either way an enhancement would be required here to make Stream[_] responses work
         // with context-per-jvm=true configuration
+        logger.info("#$ Before job messages")
         resultActor ! JobResult(jobId, result)
         statusActor ! JobFinished(jobId, DateTime.now())
+        logger.info("#$ After job messages")
         logger.info(result.toString())
-        new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
-          write(result.toString()); close
-        }
+        //HERE------------------------------------------------------------------------------
+//        logger.info(result.toString())
+//        new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
+//          write(result.toString()); close
+//        }
+
+        //TO HERE IS NEW------------------------------------------------------------------------
 
       case Failure(wrapped: Throwable) =>
         // actual error was wrapped so we could process fatal errors, see #1161
@@ -705,10 +722,12 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
       case _ =>
         // Make sure to decrement the count of running jobs when a job finishes, in both success and failure
         // cases.
+        logger.info("#$ Before last messages")
         currentRunningJobs.getAndDecrement()
         resultActor ! Unsubscribe(jobId, subscriber)
         statusActor ! Unsubscribe(jobId, subscriber)
         postEachJob()
+        logger.info("#$ After last messages")
     }(executionContext)
   }
 
