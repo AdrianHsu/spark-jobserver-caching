@@ -147,7 +147,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
   private var jobsLoader: JobCache = _
   private val dependenciesCache = new DependenciesCache(jobCacheSize, daoActor)
 
-  private val jobServerNamedObjects = new JobServerNamedObjects(context.system)
+  private val jobServerAutoCachedNamedObjects = new JobServerAutoCachedNamedObjects(context.system)
 
   if (isKillingContextOnUnresponsiveSupervisorEnabled()) {
     logger.info(s"Sending identify message to supervisor at ${supervisorActorAddress}")
@@ -159,7 +159,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
     val _contextCfg = contextConfig
     new JobEnvironment with DataFileCache {
       def jobId: String = _jobId
-      def namedObjects: NamedObjects = jobServerNamedObjects
+      def namedObjects: NamedObjects = jobServerAutoCachedNamedObjects
       def contextConfig: Config = _contextCfg
       def getDataFile(dataFile: String): File = {
         remoteFileCache.getDataFile(dataFile)
