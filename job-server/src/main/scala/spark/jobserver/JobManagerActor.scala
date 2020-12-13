@@ -1,11 +1,13 @@
 package spark.jobserver
 
-import java.io.{File, PrintWriter}
+import java.io.{File, PrintWriter, FileReader, FileWriter}
 import java.net.{MalformedURLException, URI, URL}
 import java.util.concurrent.Executors._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import scala.io.Source
+
+import scala.util.parsing.json.{JSONArray, JSONObject, JSON}
 
 import akka.actor._
 import akka.pattern.ask
@@ -593,7 +595,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
 
     val jobId = jobInfo.jobId
     logger.info("Starting Spark job {} [{}]...", jobId: Any, jobInfo.mainClass)
-    logger.info("[____Custom Log____] getJobFuture() started at {}", DateTime.now())
+    logger.info("[____Custom Log____] Job was started at {}", jobInfo.startTime)
     var inputStr = jobConfig.getString("input.string") // a b c a b see
 //    logger.info(inputStr)
 
@@ -708,9 +710,48 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         resultActor ! JobResult(jobId, result)
         statusActor ! JobFinished(jobId, DateTime.now())
         logger.info(result.toString())
-        new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
-          write(result.toString()); close
+
+        // Determine whether to cache based on the policy
+        // ex. ProcessingTime, JobFreq, Size of the input
+
+        // Compute Processing Time in ms
+        val processingTime = DateTime.now().getMillis() - jobInfo.startTime.getMillis()
+        logger.info("[____Custom Log____] Job Processing Time {}", processingTime)
+
+        // TODO: Implement frequency based caching
+        val jobFreq = 10
+
+        // Cache if processing takes more than 5 sec
+        if (processingTime > 5000) {
+          if (jobFreq >= 10) {
+            new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
+              write(result.toString()); close
+            }
+          }
         }
+
+        // New Caching:
+        // TODO: Finish Implementation
+        // FORMAT
+        // JSON file with the list of input [{input1:{output:, createdAt:}},{input2:{output:, createdAt:}}]
+        /*
+        val reader = new FileReader("/tmp/spark-jobserver/cachMap.json")
+
+        //Read JSON file
+        val obj = JSON.parse(reader)
+        JSONArray inputList = (JSONArray) obj
+
+        // Append new json object
+        JSONObject inputObj = new JSONObject()
+        JSONObject detail = new JSONObject()
+        detail.put("output", result.toString())
+        detail.put("createdAt", DateTime.now())
+        newCache.put(inputStr, detail)
+        inputList.put(inputObj.toString())
+
+        file.write(inputList.toJSONString())
+        file.flush()
+        */
 
       case Failure(wrapped: Throwable) =>
         // actual error was wrapped so we could process fatal errors, see #1161
