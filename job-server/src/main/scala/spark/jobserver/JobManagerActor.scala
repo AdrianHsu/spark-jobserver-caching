@@ -7,7 +7,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import scala.io.Source
 
+import spray.httpx.SprayJsonSupport._
+import spray.json._
+import DefaultJsonProtocol._
 import scala.util.parsing.json.{JSONArray, JSONObject, JSON}
+import scala.collection.immutable.Map
 
 import akka.actor._
 import akka.pattern.ask
@@ -586,6 +590,30 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
     getJobFuture(jobContainer, jobInfo, jobConfig, subscriber, jobContext, sparkEnv)
   }
 
+  def parseJsonFile(filename: String): Map[String, Map[String, String]] = {
+    // Parse text to json, update, and rewrite the file
+    val json_content = scala.io.Source.fromFile(filename).mkString
+    val json_data = JSON.parseFull(json_content)
+    json_data match {
+      case Some(e) =>
+        val res1 : Map[String, Map[String, String]] =
+        e.asInstanceOf[Map[String, Map[String, String]]]
+        return res1
+    }
+  }
+
+  def parseConfig(filename: String): Map[String, String] = {
+    // Parse text to json, update, and rewrite the file
+    val json_content = scala.io.Source.fromFile(filename).mkString
+    val json_data = JSON.parseFull(json_content)
+    json_data match {
+      case Some(e) =>
+        val res1 : Map[String, String] =
+        e.asInstanceOf[Map[String, String]]
+        return res1
+    }
+  }
+
   private def getJobFuture(container: JobContainer,
                            jobInfo: JobInfo,
                            jobConfig: Config,
@@ -605,6 +633,20 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
       }
     }
 
+    val localCache = parseJsonFile("/tmp/spark-jobserver/local_cache.json")
+    if (localCache.contains(inputStr)) {
+      logger.info("[____Custom Log____] Cache is found and returned at {}", DateTime.now())
+      return Future {
+        resultActor ! JobResult(jobId, localCache.get(inputStr).get("output"))
+        statusActor ! JobFinished(jobId, DateTime.now())
+        currentRunningJobs.getAndDecrement()
+        resultActor ! Unsubscribe(jobId, subscriber)
+        statusActor ! Unsubscribe(jobId, subscriber)
+        postEachJob()
+      }(executionContext)
+    }
+
+    /*
     val okFileExtensions = List("in")
     val files = getListOfFiles(new File("/tmp/spark-jobserver/adrian/"), okFileExtensions)
 
@@ -641,6 +683,7 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
     new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".in") {
       write(inputStr); close
     }
+    */
 
 
     // Atomically increment the number of currently running jobs. If the old value already exceeded the
@@ -718,40 +761,26 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         val processingTime = DateTime.now().getMillis() - jobInfo.startTime.getMillis()
         logger.info("[____Custom Log____] Job Processing Time {}", processingTime)
 
-        // TODO: Implement frequency based caching
-        val jobFreq = 10
-
+        /*
         // Cache if processing takes more than 5 sec
-        if (processingTime > 5000) {
-          if (jobFreq >= 10) {
             new PrintWriter("/tmp/spark-jobserver/adrian/" + jobId + ".out") {
               write(result.toString()); close
-            }
-          }
         }
-
-        // New Caching:
-        // TODO: Finish Implementation
-        // FORMAT
-        // JSON file with the list of input [{input1:{output:, createdAt:}},{input2:{output:, createdAt:}}]
-        /*
-        val reader = new FileReader("/tmp/spark-jobserver/cachMap.json")
-
-        //Read JSON file
-        val obj = JSON.parse(reader)
-        JSONArray inputList = (JSONArray) obj
-
-        // Append new json object
-        JSONObject inputObj = new JSONObject()
-        JSONObject detail = new JSONObject()
-        detail.put("output", result.toString())
-        detail.put("createdAt", DateTime.now())
-        newCache.put(inputStr, detail)
-        inputList.put(inputObj.toString())
-
-        file.write(inputList.toJSONString())
-        file.flush()
         */
+
+        def toInt(o: Option[String]): Option[Int] =
+          o.flatMap(s => Try(s.toInt).toOption)
+
+        val localConfig = parseConfig("/tmp/spark-jobserver/local_config.json")
+        val p = localConfig.get("processing_time_in_ms").get
+        if (processingTime >= p.toInt) {
+          // Cache the output
+          val detail = Map("output" -> result.toString(), "createdAt" -> DateTime.now().toString)
+          val new_cache = localCache + (inputStr -> detail)
+          val jsonAst = new_cache.toJson
+          val json_str = jsonAst.prettyPrint
+          new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(json_str); close}
+        }
 
       case Failure(wrapped: Throwable) =>
         // actual error was wrapped so we could process fatal errors, see #1161
