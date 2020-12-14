@@ -1,12 +1,15 @@
 package spark.jobserver
 
 import akka.actor.ActorSystem
+import org.apache.spark.rdd.RDD
+import org.apache.spark.util.SizeEstimator
+
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import scala.util.{Try, Success, Failure}
+import scala.util.{Failure, Success, Try}
 import org.slf4j.LoggerFactory
-import spray.caching.{ LruCache, Cache }
+import spray.caching.{Cache, LruCache}
 import spray.util._
 
 /**
@@ -32,6 +35,14 @@ class JobServerNamedObjects(system: ActorSystem) extends NamedObjects {
   // this reference prevents the object from being GCed and cleaned by sparks ContextCleaner
   // or some other GC for other types of objects
   private val namesToObjects: Cache[NamedObject] = LruCache()
+
+  override def cachedCollect[T](name: String, objGen: => RDD[T]): Array[T] = {val t1 = System.nanoTime()
+    val namedRdd: RDD[T] = objGen
+    val output = namedRdd.collect()
+    val computeTime = System.nanoTime() - t1
+    val size = SizeEstimator.estimate(output)
+    output
+  }
 
   override def getOrElseCreate[O <: NamedObject](name: String, objGen: => O)
                                  (implicit timeout: FiniteDuration = defaultTimeout,

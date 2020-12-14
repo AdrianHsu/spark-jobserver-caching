@@ -1,5 +1,7 @@
 package spark.jobserver
 
+import org.apache.spark.rdd.RDD
+
 import scala.concurrent.duration.FiniteDuration
 trait NamedObject
 
@@ -43,6 +45,7 @@ abstract class NamedObjectPersister[O <: NamedObject] {
 trait NamedObjects {
 
   def defaultTimeout : FiniteDuration
+  def cachedCollect[T](name: String, objGen: => RDD[T]): Array[T]
 
   /**
    * Gets a named object (NObj) with the given name, or creates it if one doesn't already exist.

@@ -49,20 +49,27 @@ object WordCountExampleNewApiSelfCache extends NewSparkJob {
   def runJob(sc: SparkContext, runtime: JobEnvironment, data: JobData): JobOutput = {
       logger.info("#$ " + data.toString())
       val cacheId: String = getCacheId(sc, runtime, data)
-      val t1 = System.nanoTime
-    //TODO maybe adjust the RDDPersister
-      val wordCountNamedRdd: NamedRDD[(String, Long)] = runtime.namedObjects.getOrElseCreate(cacheId,
-        {
-          NamedRDD(sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _),
-            false,
-            StorageLevel.MEMORY_AND_DISK)
-        })(runtime.namedObjects.defaultTimeout, new RDDPersister[(String, Long)])
-      val duration = (System.nanoTime - t1) / 1e9d
-      logger.info(s"This job $runtime.jobId with cache[$cacheId] took $duration")
-      logger.info("#$ " + wordCountNamedRdd.rdd.toString())
-//      val info = RDDInfo.fromRdd(wordCountNamedRdd.rdd)
-//      logger.info("#$ Size is" +  info)
-      wordCountNamedRdd.rdd.collect()
+      val t1 = System.nanoTime()
+      val result = runtime.namedObjects.cachedCollect(cacheId,
+        sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _)
+      )
+      val t2 = System.nanoTime()
+      logger.info(s"Time took ${(t2-t1)/1e9}")
+      result
+//      val t1 = System.nanoTime
+//    //TODO maybe adjust the RDDPersister
+//      val wordCountNamedRdd: NamedRDD[(String, Long)] = runtime.namedObjects.getOrElseCreate(cacheId,
+//        {
+//          NamedRDD(sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _),
+//            false,
+//            StorageLevel.MEMORY_AND_DISK)
+//        })(runtime.namedObjects.defaultTimeout, new RDDPersister[(String, Long)])
+//      val duration = (System.nanoTime - t1) / 1e9d
+//      logger.info(s"This job $runtime.jobId with cache[$cacheId] took $duration")
+//      logger.info("#$ " + wordCountNamedRdd.rdd.toString())
+////      val info = RDDInfo.fromRdd(wordCountNamedRdd.rdd)
+////      logger.info("#$ Size is" +  info)
+//      wordCountNamedRdd.rdd.collect()
   }
 
   def validate(sc: SparkContext, runtime: JobEnvironment, config: Config):
