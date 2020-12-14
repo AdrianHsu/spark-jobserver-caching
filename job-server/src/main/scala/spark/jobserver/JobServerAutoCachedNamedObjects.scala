@@ -57,6 +57,9 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   private val namesToObjects: Cache[NamedObject] = LruCache()
 
   override def cachedCollect[T](name: String, objGen: => RDD[T]): Array[T] = {
+    logger.info("#@ entering cacheCollect")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     if (jobsProcessed==epochSize) {
       jobsProcessed = 0
       recomputeCacheAssignments()
@@ -86,8 +89,8 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         currentProfile.get(name) match {
           case Some(CacheInfo(cached, _, _, _, _)) => {
             if (cached) {
-              createObject(
-                NamedRDD(rdd, false, StorageLevel.MEMORY_ONLY), name)(new RDDPersister[T]).apply()
+              getOrElseCreate( name,
+                NamedRDD(rdd, false, StorageLevel.MEMORY_ONLY))(defaultTimeout, new RDDPersister[T])
             }
           }
           case None =>
@@ -96,6 +99,7 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         val t = System.nanoTime()
         val output = rdd.collect()
         val computeTime = System.nanoTime() - t
+        logger.info(s"#! computeTIme[")
         val size = SizeEstimator.estimate(output)
 
         incrementComputed(name, computeTime, size)
@@ -105,6 +109,7 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   }
 
   private def incrementCached(name: String){
+    logger.info("#@ entering incrementCached")
     updateProfile.get(name) match {
       case Some(previous: CacheInfo) => {
         updateProfile+=(name -> CacheInfo(
@@ -121,6 +126,7 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   }
 
   private def incrementComputed(name: String, computeTime: Long, size: Long){
+    logger.info("#@ entering increment computed")
     updateProfile.get(name) match {
       case Some(previous: CacheInfo) => {
         val newEstimatedProcessingTime =
@@ -150,12 +156,15 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   }
 
   private def recomputeCacheAssignments(){
+    logger.info("#@ entering recomputeCacheAssignments")
     combineProfiles()
     assignCaching(budget)
+    currentProfile.clear()
   }
 
   private def combineProfiles(): Unit = {
-    for ((name, value) <- updateProfile){
+    logger.info("#@ entering combineProfiles")
+    for((name, value) <- updateProfile){
       currentProfile.get(name) match {
         case None => currentProfile += (name -> value)
         case Some(previous: CacheInfo) => {
@@ -179,6 +188,7 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   }
 
   private def assignCaching(budget: Long) {
+    logger.info("#@ entering assignCaching")
     var budgetLeft = budget
     val sorted = currentProfile.toSeq.sortWith((kv1, kv2) => {
       kv1._2.estimatedProcessingTime.getOrElse(0.0) * kv1._2.nProfiles.getOrElse(0).asInstanceOf[Double] >
