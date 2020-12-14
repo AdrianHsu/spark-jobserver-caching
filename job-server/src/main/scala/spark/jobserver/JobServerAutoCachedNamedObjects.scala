@@ -57,7 +57,7 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   private val namesToObjects: Cache[NamedObject] = LruCache()
 
   override def cachedCollect[T](name: String, objGen: => RDD[T]): Array[T] = {
-    logger.info("#@ entering cacheCollect")
+    logger.info("#! entering cacheCollect")
     logger.info(s"#! currentProfile:[$currentProfile]")
     logger.info(s"#! updateProfile:[$updateProfile]")
     if (jobsProcessed==epochSize) {
@@ -75,10 +75,16 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         //uncache the file if we need to
         currentProfile.get(name) match {
           case Some(CacheInfo(cached, _, _, _, _)) =>
-            if (!cached) destroy(namedRdd, name)(new RDDPersister[T])
-          case None => destroy(namedRdd, name)(new RDDPersister[T])
+            if (!cached) {
+              destroy(namedRdd, name)(new RDDPersister[T])
+              logger.info(s"#! uncaching ${name} after found to be not cached ${cached}")
+            }
+          case None =>
+            destroy(namedRdd, name)(new RDDPersister[T])
+            logger.info(s"#! uncaching ${name} after found to be not cached")
         }
 
+        logger.info(s"#! ${name} was cached so I have no idea how long it took")
         incrementCached(name)
         output
       }
@@ -99,8 +105,8 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         val t = System.nanoTime()
         val output = rdd.collect()
         val computeTime = System.nanoTime() - t
-        logger.info(s"#! computeTIme[")
         val size = SizeEstimator.estimate(output)
+        logger.info(s"#! ${name} took ${computeTime / 1e9} and is size ${size}")
 
         incrementComputed(name, computeTime, size)
         output
@@ -109,7 +115,9 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
   }
 
   private def incrementCached(name: String){
-    logger.info("#@ entering incrementCached")
+    logger.info("#! entering incrementCached")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     updateProfile.get(name) match {
       case Some(previous: CacheInfo) => {
         updateProfile+=(name -> CacheInfo(
@@ -123,10 +131,15 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         updateProfile+=(name -> CacheInfo(false, 1))
       }
     }
+    logger.info("#! leaving incrementCached")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
   }
 
   private def incrementComputed(name: String, computeTime: Long, size: Long){
-    logger.info("#@ entering increment computed")
+    logger.info("#! entering incrementComputed")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     updateProfile.get(name) match {
       case Some(previous: CacheInfo) => {
         val newEstimatedProcessingTime =
@@ -153,17 +166,27 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         ))
       }
     }
+    logger.info("#! leaving incrementComputed")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
   }
 
   private def recomputeCacheAssignments(){
-    logger.info("#@ entering recomputeCacheAssignments")
+    logger.info("#! entering recomputeCacheAssignments")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     combineProfiles()
     assignCaching(budget)
-    currentProfile.clear()
+    updateProfile.clear()
+    logger.info("#! leaving recomputeCacheAssignments")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
   }
 
   private def combineProfiles(): Unit = {
-    logger.info("#@ entering combineProfiles")
+    logger.info("#! entering combineProfiles")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     for((name, value) <- updateProfile){
       currentProfile.get(name) match {
         case None => currentProfile += (name -> value)
@@ -185,30 +208,45 @@ class JobServerAutoCachedNamedObjects(system: ActorSystem) extends NamedObjects 
         }
       }
     }
+    logger.info("#! leaving combineProfiles")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
   }
 
   private def assignCaching(budget: Long) {
-    logger.info("#@ entering assignCaching")
+    logger.info("#! entering assignCaching")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
     var budgetLeft = budget
     val sorted = currentProfile.toSeq.sortWith((kv1, kv2) => {
-      kv1._2.estimatedProcessingTime.getOrElse(0.0) * kv1._2.nProfiles.getOrElse(0).asInstanceOf[Double] >
-        kv2._2.estimatedProcessingTime.getOrElse(0.0) * kv2._2.nProfiles.getOrElse(0).asInstanceOf[Double]
+      (kv1._2.estimatedProcessingTime.getOrElse(0.0) *
+        kv1._2.nProfiles.getOrElse(0).asInstanceOf[Double] /
+        kv1._2.storageSize.getOrElse((Long.MaxValue)).asInstanceOf[Double]) >
+        (kv2._2.estimatedProcessingTime.getOrElse(0.0) *
+          kv2._2.nProfiles.getOrElse(0).asInstanceOf[Double] /
+          kv2._2.storageSize.getOrElse(Long.MaxValue).asInstanceOf[Double])
     })
+    logger.info(s"#! sorted:[${sorted}]")
     for(kv <- sorted) {
       kv._2.storageSize match {
         case Some(size) =>
-          if (budgetLeft - size > 0) {}
-          budgetLeft -= size
-          currentProfile += (kv._1 -> CacheInfo(
-            true,
-            kv._2.totalCalls,
-            kv._2.estimatedProcessingTime,
-            kv._2.nProfiles,
-            kv._2.storageSize
-          ))
+          if (budgetLeft - size > 0) {
+            budgetLeft -= size
+            logger.info(s"budget is now ${budgetLeft}")
+            currentProfile += (kv._1 -> CacheInfo(
+              true,
+              kv._2.totalCalls,
+              kv._2.estimatedProcessingTime,
+              kv._2.nProfiles,
+              kv._2.storageSize
+            ))
+          }
         case None =>
       }
     }
+    logger.info("#! leaving assignCaching")
+    logger.info(s"#! currentProfile:[$currentProfile]")
+    logger.info(s"#! updateProfile:[$updateProfile]")
   }
 
 //  override def cachedCollect[T](name: String, objGen: => RDD[T]): Array[T] = {

@@ -47,7 +47,7 @@ object WordCountExampleNewApiSelfCache extends NewSparkJob {
   val logger = LoggerFactory.getLogger(getClass)
 
   def runJob(sc: SparkContext, runtime: JobEnvironment, data: JobData): JobOutput = {
-      logger.info("#$ " + data.toString())
+      //logger.info("#$ " + data.toString())
       val cacheId: String = getCacheId(sc, runtime, data)
       val t1 = System.nanoTime()
       val result = runtime.namedObjects.cachedCollect(cacheId,
