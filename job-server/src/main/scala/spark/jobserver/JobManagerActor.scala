@@ -633,17 +633,49 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
       }
     }
 
+    // Load two files into immutable Map
+    val localConfig = parseConfig("/tmp/spark-jobserver/local_config.json")
     val localCache = parseJsonFile("/tmp/spark-jobserver/local_cache.json")
+    var evicted = false
+
     if (localCache.contains(inputStr)) {
-      logger.info("[____Custom Log____] Cache is found and returned at {}", DateTime.now())
-      return Future {
-        resultActor ! JobResult(jobId, localCache.get(inputStr).get("output"))
-        statusActor ! JobFinished(jobId, DateTime.now())
-        currentRunningJobs.getAndDecrement()
-        resultActor ! Unsubscribe(jobId, subscriber)
-        statusActor ! Unsubscribe(jobId, subscriber)
-        postEachJob()
-      }(executionContext)
+      // Determine whether to use cache or not
+      val lifetime = localConfig.get("age_in_sec").get.toInt
+      val age = DateTime.now().getMillis() - DateTime.parse(localCache.get(inputStr).get("createdAt")).getMillis()
+
+      // Evict: Cache is too old
+      if (lifetime * 1000 < age) {
+        logger.info("[____Custom Log____] Evict! Cache is too old")
+        val evictedCache = localCache.-(inputStr)
+        val e_jsonAst = evictedCache.toJson
+        val e_json_str = e_jsonAst.prettyPrint
+        new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(e_json_str); close}
+        evicted = true
+      } else {
+        // Cache is Fresh
+        val frequency = localConfig.get("frequency").get
+        val input_freq = localCache.get(inputStr).get("frequency").toInt
+
+        // TODO: increase frequency
+        val updatedFreq = localCache.get(inputStr).get.-("frequency") + ("frequency" -> (input_freq + 1).toString)
+        val new_cache_f = localCache.-(inputStr) + (inputStr -> updatedFreq)
+        val jsonAst_f = new_cache_f.toJson
+        val json_str_f = jsonAst_f.prettyPrint
+        new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(json_str_f); close}
+
+        // Check whether frequency >= config frequency
+        if (input_freq >= frequency.toInt) {
+          logger.info("[____Custom Log____] Cache is found and returned at {}", DateTime.now())
+          return Future {
+            resultActor ! JobResult(jobId, localCache.get(inputStr).get("output"))
+            statusActor ! JobFinished(jobId, DateTime.now())
+            currentRunningJobs.getAndDecrement()
+            resultActor ! Unsubscribe(jobId, subscriber)
+            statusActor ! Unsubscribe(jobId, subscriber)
+            postEachJob()
+          }(executionContext)
+        }
+      }
     }
 
     /*
@@ -771,15 +803,48 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
         def toInt(o: Option[String]): Option[Int] =
           o.flatMap(s => Try(s.toInt).toOption)
 
-        val localConfig = parseConfig("/tmp/spark-jobserver/local_config.json")
         val p = localConfig.get("processing_time_in_ms").get
-        if (processingTime >= p.toInt) {
+        if ((!localCache.contains(inputStr) || evicted) && processingTime >= p.toInt) {
           // Cache the output
-          val detail = Map("output" -> result.toString(), "createdAt" -> DateTime.now().toString)
-          val new_cache = localCache + (inputStr -> detail)
-          val jsonAst = new_cache.toJson
-          val json_str = jsonAst.prettyPrint
-          new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(json_str); close}
+          val detail = Map(
+            "output" -> result.toString(),
+            "createdAt" -> DateTime.now().toString,
+            "frequency" -> "1",
+            "processing_time_in_ms" -> processingTime.toString
+          )
+
+          var smallest_inputStr = ""
+          var smallest_p = 1000000000
+
+          // Evict if necessary
+          if (localCache.size >= localConfig.get("cache_size").get.toInt) {
+            logger.info("[____Custom Log____] Cache is Full! Evcit using {}", localConfig.get("eviction"))
+            if (localConfig.get("eviction") == Some("processing_time")) {
+              // Evict the one with the smallest processing time
+              for ((k, v) <- localCache) {
+                if (v.get("processing_time_in_ms").get.toInt < smallest_p) {
+                  smallest_inputStr = k
+                  smallest_p = v.get("processing_time_in_ms").get.toInt
+                }
+              }
+              logger.info("[____Custom Log____] Decide to evict {}", smallest_inputStr)
+            }
+          }
+          if (smallest_inputStr != "") {
+            // Evict and then add the new input
+            val new_cache = localCache.-(smallest_inputStr) + (inputStr -> detail)
+            val jsonAst = new_cache.toJson
+            val json_str = jsonAst.prettyPrint
+            new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(json_str); close}
+          } else {
+            // Just add the new input
+            val new_cache = localCache + (inputStr -> detail)
+            val jsonAst = new_cache.toJson
+            val json_str = jsonAst.prettyPrint
+            new PrintWriter("/tmp/spark-jobserver/local_cache.json") {write(json_str); close}
+          }
+        } else {
+          logger.info("[____Custom Log____] We already have cache but processing time was too short or not frequent enough")
         }
 
       case Failure(wrapped: Throwable) =>

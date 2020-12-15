@@ -1,5 +1,7 @@
 {
-	"processing_time_in_ms": "10000",
-	"size": "10",
-	"frequency": "2"
+	"processing_time_in_ms": "10",
+	"cache_size": "2",
+	"age_in_sec" : "100000",
+	"frequency": "5",
+	"eviction": "processing_time"
 }
