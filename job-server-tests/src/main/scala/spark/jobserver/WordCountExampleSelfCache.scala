@@ -48,15 +48,17 @@ object WordCountExampleNewApiSelfCache extends NewSparkJob {
 
   def runJob(sc: SparkContext, runtime: JobEnvironment, data: JobData): JobOutput = {
       //logger.info("#$ " + data.toString())
+
       val cacheId: String = getCacheId(sc, runtime, data)
-      val t1 = System.nanoTime()
-      val result = runtime.namedObjects.cachedCollect(cacheId,
-        sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _)
-      )
-      val t2 = System.nanoTime()
-      logger.info(s"Time took ${(t2-t1)/1e9}")
-      result
-//      val t1 = System.nanoTime
+      runtime.namedObjects.cachedCollect(cacheId, sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _))
+//      val t1 = System.nanoTime()
+//      val result = runtime.namedObjects.cachedCollect(cacheId,
+//        sc.parallelize(data).map(x => (x, 1L)).reduceByKey(_ + _)
+//      )
+//      val t2 = System.nanoTime()
+//      logger.info(s"Time took ${(t2-t1)/1e9}")
+//      result
+////      val t1 = System.nanoTime
 //    //TODO maybe adjust the RDDPersister
 //      val wordCountNamedRdd: NamedRDD[(String, Long)] = runtime.namedObjects.getOrElseCreate(cacheId,
 //        {

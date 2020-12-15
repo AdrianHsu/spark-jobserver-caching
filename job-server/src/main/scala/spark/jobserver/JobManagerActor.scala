@@ -667,7 +667,10 @@ class JobManagerActor(daoActor: ActorRef, supervisorActorAddress: String, contex
 //              logger.info("#$ " + java.util.UUID.nameUUIDFromBytes(jobData.toString()).toString)
               val cacheId: String = job.getCacheId(jobC, jobEnv, jobData)
               logger.info("#$ cacheId: " + cacheId)
+              val t1 = System.nanoTime()
               val result = job.runJob(jobC, jobEnv, jobData)
+              val t2 = System.nanoTime()
+              logger.info(s"Time took ${(t2-t1)/1e9}")
               logger.info("#$ Right after runJob")
               result
           }

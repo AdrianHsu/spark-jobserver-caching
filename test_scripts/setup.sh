@@ -1,0 +1,1 @@
+curl -X POST localhost:8090/binaries/test -H "Content-Type: application/java-archive" --data-binary @job-server-tests/target/scala-2.11/job-server-tests_2.11-0.10.1-SNAPSHOT.jar && curl -d "" "localhost:8090/contexts/test-context"
